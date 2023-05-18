@@ -1,121 +1,125 @@
-﻿
+﻿//
+// CUDA implementation of Laplacian Filter
+//
+#include "opencv2/imgproc/imgproc.hpp"
+#include <opencv2/highgui.hpp>
+#include <iostream>
+#include <string>
+#include <stdio.h>
+#include <cuda.h>
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
-#include <stdio.h>
 
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
+#define BLOCK_SIZE      16
+#define FILTER_WIDTH    3       
+#define FILTER_HEIGHT   3       
 
-__global__ void addKernel(int *c, const int *a, const int *b)
+using namespace std;
+
+// Run Laplacian Filter on GPU
+__global__ void laplacianFilter(unsigned char *srcImage, unsigned char *dstImage, unsigned int width, unsigned int height)
 {
-    int i = threadIdx.x;
-    c[i] = a[i] + b[i];
+   int x = blockIdx.x*blockDim.x + threadIdx.x;
+   int y = blockIdx.y*blockDim.y + threadIdx.y;
+
+   //float kernel[3][3] = {0, -1, 0, -1, 4, -1, 0, -1, 0};
+   float kernel[3][3] = {1, 4, 1, 4, -20, 4, 1, 4, 1};
+   //float kernel[3][3] = { 0, 1, 0, 1, -4, 1, 0, 1, 0 };
+   //float kernel[3][3] = {-1, -1, -1, -1, 8, -1, -1, -1, -1};   
+   // only threads inside image will write results
+   if((x>=FILTER_WIDTH/2) && (x<(width-FILTER_WIDTH/2)) && (y>=FILTER_HEIGHT/2) && (y<(height-FILTER_HEIGHT/2)))
+   {
+         // Sum of pixel values 
+         float sum = 0;
+         // Loop inside the filter to average pixel values
+         for(int ky=-FILTER_HEIGHT/2; ky<=FILTER_HEIGHT/2; ky++) {
+            for(int kx=-FILTER_WIDTH/2; kx<=FILTER_WIDTH/2; kx++) {
+               float fl = srcImage[((y+ky)*width + (x+kx))]; 
+               sum += fl*kernel[ky+FILTER_HEIGHT/2][kx+FILTER_WIDTH/2];
+            }
+         }
+         dstImage[(y*width+x)] =  sum;
+   }
 }
 
-int main()
+
+// The wrapper to call laplacian filter 
+void laplacianFilter_GPU_wrapper(const cv::Mat& input, cv::Mat& output)
 {
-    const int arraySize = 5;
-    const int a[arraySize] = { 1, 2, 3, 4, 5 };
-    const int b[arraySize] = { 10, 20, 30, 40, 50 };
-    int c[arraySize] = { 0 };
+        // Use cuda event to catch time
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
 
-    // Add vectors in parallel.
-    cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addWithCuda failed!");
-        return 1;
+        // Calculate number of input & output bytes in each block
+        const int inputSize = input.cols * input.rows;
+        const int outputSize = output.cols * output.rows;
+        unsigned char *d_input, *d_output;
+        
+        // Allocate device memory
+        cudaMalloc<unsigned char>(&d_input,inputSize);
+        cudaMalloc<unsigned char>(&d_output,outputSize);
+
+        // Copy data from OpenCV input image to device memory
+        cudaMemcpy(d_input,input.ptr(),inputSize,cudaMemcpyHostToDevice);
+
+        // Specify block size
+        const dim3 block(BLOCK_SIZE,BLOCK_SIZE);
+
+        // Calculate grid size to cover the whole image
+        const dim3 grid((output.cols + block.x - 1)/block.x, (output.rows + block.y - 1)/block.y);
+
+        // Start time
+        cudaEventRecord(start);
+
+        // Run BoxFilter kernel on CUDA 
+        laplacianFilter<<<grid,block>>>(d_input, d_output, output.cols, output.rows);
+
+        // Stop time
+        cudaEventRecord(stop);
+
+        //Copy data from device memory to output image
+        cudaMemcpy(output.ptr(),d_output,outputSize,cudaMemcpyDeviceToHost);
+
+        //Free the device memory
+        cudaFree(d_input);
+        cudaFree(d_output);
+
+        cudaEventSynchronize(stop);
+        float milliseconds = 0;
+        
+        // Calculate elapsed time in milisecond  
+        cudaEventElapsedTime(&milliseconds, start, stop);
+        cout<< "\nProcessing time for GPU (ms): " << milliseconds << "\n";
+}
+
+int main(int argc, char** argv) {
+
+    string input_file = "test.jpg";
+
+    // Read input image 
+    cv::Mat srcImage = cv::imread(input_file, cv::ImreadModes::IMREAD_UNCHANGED);
+    if (srcImage.empty())
+    {
+        std::cout << "no image found";
+        return -1;
     }
 
-    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-        c[0], c[1], c[2], c[3], c[4]);
+    // convert RGB to gray scale
+    cv::cvtColor(srcImage, srcImage, cv::COLOR_BGR2GRAY);
 
-    // cudaDeviceReset must be called before exiting in order for profiling and
-    // tracing tools such as Nsight and Visual Profiler to show complete traces.
-    cudaStatus = cudaDeviceReset();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceReset failed!");
-        return 1;
-    }
+    // Declare the output image  
+    cv::Mat dstImage(srcImage.size(), srcImage.type());
+
+    // run laplacian filter on GPU  
+    laplacianFilter_GPU_wrapper(srcImage, dstImage);
+    // normalization to 0-255
+    //dstImage.convertTo(dstImage, CV_32F, 1.0 / 255, 0);
+    //dstImage *= 255;
+    // Output image
+    imwrite("output5.jpg", dstImage);
+
 
     return 0;
-}
-
-// Helper function for using CUDA to add vectors in parallel.
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
-{
-    int *dev_a = 0;
-    int *dev_b = 0;
-    int *dev_c = 0;
-    cudaError_t cudaStatus;
-
-    // Choose which GPU to run on, change this on a multi-GPU system.
-    cudaStatus = cudaSetDevice(0);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
-        goto Error;
-    }
-
-    // Allocate GPU buffers for three vectors (two input, one output)    .
-    cudaStatus = cudaMalloc((void**)&dev_c, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMalloc((void**)&dev_a, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMalloc((void**)&dev_b, size * sizeof(int));
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMalloc failed!");
-        goto Error;
-    }
-
-    // Copy input vectors from host memory to GPU buffers.
-    cudaStatus = cudaMemcpy(dev_a, a, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-    cudaStatus = cudaMemcpy(dev_b, b, size * sizeof(int), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-    // Launch a kernel on the GPU with one thread for each element.
-    addKernel<<<1, size>>>(dev_c, dev_a, dev_b);
-
-    // Check for any errors launching the kernel
-    cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
-        goto Error;
-    }
-    
-    // cudaDeviceSynchronize waits for the kernel to finish, and returns
-    // any errors encountered during the launch.
-    cudaStatus = cudaDeviceSynchronize();
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
-        goto Error;
-    }
-
-    // Copy output vector from GPU buffer to host memory.
-    cudaStatus = cudaMemcpy(c, dev_c, size * sizeof(int), cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy failed!");
-        goto Error;
-    }
-
-Error:
-    cudaFree(dev_c);
-    cudaFree(dev_a);
-    cudaFree(dev_b);
-    
-    return cudaStatus;
 }
