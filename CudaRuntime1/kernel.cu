@@ -12,39 +12,34 @@
 
 
 #define BLOCK_SIZE      16
-#define FILTER_WIDTH    3       
-#define FILTER_HEIGHT   3       
+#define KERNEL_SIZE    3             
 
 using namespace std;
 
-// Run Laplacian Filter on GPU
 __global__ void laplacianFilter(unsigned char *srcImage, unsigned char *dstImage, unsigned int width, unsigned int height)
 {
    int x = blockIdx.x*blockDim.x + threadIdx.x;
    int y = blockIdx.y*blockDim.y + threadIdx.y;
 
    //float kernel[3][3] = {0, -1, 0, -1, 4, -1, 0, -1, 0};
-   float kernel[3][3] = {1, 4, 1, 4, -20, 4, 1, 4, 1};
-   //float kernel[3][3] = { 0, 1, 0, 1, -4, 1, 0, 1, 0 };
+   float kernel[3][3] = { 0, 1, 0, 1, -4, 1, 0, 1, 0 };
+   //float kernel[3][3] = {1, 4, 1, 4, -20, 4, 1, 4, 1};
    //float kernel[3][3] = {-1, -1, -1, -1, 8, -1, -1, -1, -1};   
-   // only threads inside image will write results
-   if((x>=FILTER_WIDTH/2) && (x<(width-FILTER_WIDTH/2)) && (y>=FILTER_HEIGHT/2) && (y<(height-FILTER_HEIGHT/2)))
+   if((x>= KERNEL_SIZE /2) && (x<(width- KERNEL_SIZE /2)) && (y>= KERNEL_SIZE /2) && (y<(height- KERNEL_SIZE /2)))
    {
-         // Sum of pixel values 
          float sum = 0;
          // Loop inside the filter to average pixel values
-         for(int ky=-FILTER_HEIGHT/2; ky<=FILTER_HEIGHT/2; ky++) {
-            for(int kx=-FILTER_WIDTH/2; kx<=FILTER_WIDTH/2; kx++) {
-               float fl = srcImage[((y+ky)*width + (x+kx))]; 
-               sum += fl*kernel[ky+FILTER_HEIGHT/2][kx+FILTER_WIDTH/2];
+         for(int ky = -KERNEL_SIZE / 2; ky <= KERNEL_SIZE / 2; ky++) {
+            for(int kx = -KERNEL_SIZE / 2; kx <= KERNEL_SIZE / 2; kx++) {
+               float fl = srcImage[((y + ky) * width + (x + kx))]; 
+               sum += fl * kernel[ky + KERNEL_SIZE / 2][kx + KERNEL_SIZE / 2];
             }
          }
-         dstImage[(y*width+x)] =  sum;
+         dstImage[(y * width + x)] =  sum;
    }
 }
 
 
-// The wrapper to call laplacian filter 
 void laplacianFilter_GPU_wrapper(const cv::Mat& input, cv::Mat& output)
 {
         // Use cuda event to catch time
@@ -98,7 +93,6 @@ int main(int argc, char** argv) {
 
     string input_file = "test.jpg";
 
-    // Read input image 
     cv::Mat srcImage = cv::imread(input_file, cv::ImreadModes::IMREAD_UNCHANGED);
     if (srcImage.empty())
     {
@@ -106,19 +100,11 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // convert RGB to gray scale
     cv::cvtColor(srcImage, srcImage, cv::COLOR_BGR2GRAY);
-
-    // Declare the output image  
     cv::Mat dstImage(srcImage.size(), srcImage.type());
 
-    // run laplacian filter on GPU  
     laplacianFilter_GPU_wrapper(srcImage, dstImage);
-    // normalization to 0-255
-    //dstImage.convertTo(dstImage, CV_32F, 1.0 / 255, 0);
-    //dstImage *= 255;
-    // Output image
-    imwrite("output5.jpg", dstImage);
+    imwrite("output2.jpg", dstImage);
 
 
     return 0;
