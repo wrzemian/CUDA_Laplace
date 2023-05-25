@@ -18,14 +18,16 @@ __global__ void laplacianFilter(unsigned char *srcImage, unsigned char *dstImage
    int y = blockIdx.y * blockDim.y + threadIdx.y;
 
    //float kernel[3][3] = {0, -1, 0, -1, 4, -1, 0, -1, 0};
-   //float kernel[3][3] = { 0, 1, 0, 1, -4, 1, 0, 1, 0 };
-   float kernel[3][3] = {1, 4, 1, 4, -20, 4, 1, 4, 1};
+   float kernel[3][3] = { 0, 1, 0, 1, -4, 1, 0, 1, 0 };
+   //float kernel[3][3] = {1, 4, 1, 4, -20, 4, 1, 4, 1};
    //float kernel[3][3] = {-1, -1, -1, -1, 8, -1, -1, -1, -1};   
    if((x >= KERNEL_SIZE /2) && (x < (width - KERNEL_SIZE /2)) && (y >= KERNEL_SIZE /2) && (y < (height - KERNEL_SIZE /2)))
    {
          float sum = 0;
-         for(int ky = -KERNEL_SIZE / 2; ky <= KERNEL_SIZE / 2; ky++) {
-            for(int kx = -KERNEL_SIZE / 2; kx <= KERNEL_SIZE / 2; kx++) {
+         for(int ky = -KERNEL_SIZE / 2; ky <= KERNEL_SIZE / 2; ky++) 
+         {
+            for(int kx = -KERNEL_SIZE / 2; kx <= KERNEL_SIZE / 2; kx++) 
+            {
                float src = srcImage[((y + ky) * width + (x + kx))]; 
                sum += src * kernel[ky + KERNEL_SIZE / 2][kx + KERNEL_SIZE / 2];
             }
@@ -35,7 +37,7 @@ __global__ void laplacianFilter(unsigned char *srcImage, unsigned char *dstImage
 }
 
 
-void laplacianFilter_GPU_wrapper(const cv::Mat& input, cv::Mat& output)
+void laplacianFilter_wrapper(const cv::Mat& input, cv::Mat& output)
 {
         const int inputSize = input.cols * input.rows;
         const int outputSize = output.cols * output.rows;
@@ -66,8 +68,8 @@ void laplacianFilter_GPU_wrapper(const cv::Mat& input, cv::Mat& output)
         cout<< "\nTime in miliseconds: " << milliseconds << "\n";
 }
 
-int main(int argc, char** argv) {
-
+int main() 
+{
     string input_file = "test.jpg";
     cv::Mat srcImage = cv::imread(input_file, cv::ImreadModes::IMREAD_UNCHANGED);
     if (srcImage.empty())
@@ -78,8 +80,8 @@ int main(int argc, char** argv) {
 
     cv::cvtColor(srcImage, srcImage, cv::COLOR_BGR2GRAY);
     cv::Mat dstImage(srcImage.size(), srcImage.type());
-    laplacianFilter_GPU_wrapper(srcImage, dstImage);
-    imwrite("output3.jpg", dstImage);
+    laplacianFilter_wrapper(srcImage, dstImage);
+    imwrite("output2.jpg", dstImage);
 
     return 0;
 }
