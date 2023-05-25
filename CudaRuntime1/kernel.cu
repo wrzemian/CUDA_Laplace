@@ -26,8 +26,8 @@ __global__ void laplacianFilter(unsigned char *srcImage, unsigned char *dstImage
          float sum = 0;
          for(int ky = -KERNEL_SIZE / 2; ky <= KERNEL_SIZE / 2; ky++) {
             for(int kx = -KERNEL_SIZE / 2; kx <= KERNEL_SIZE / 2; kx++) {
-               float fl = srcImage[((y + ky) * width + (x + kx))]; 
-               sum += fl * kernel[ky + KERNEL_SIZE / 2][kx + KERNEL_SIZE / 2];
+               float src = srcImage[((y + ky) * width + (x + kx))]; 
+               sum += src * kernel[ky + KERNEL_SIZE / 2][kx + KERNEL_SIZE / 2];
             }
          }
          dstImage[(y * width + x)] =  sum;
@@ -73,13 +73,12 @@ int main(int argc, char** argv) {
     cv::Mat srcImage = cv::imread(input_file, cv::ImreadModes::IMREAD_UNCHANGED);
     if (srcImage.empty())
     {
-        std::cout << "no image found";
+        std::cout << "no image";
         return -1;
     }
 
-    //cv::cvtColor(srcImage, srcImage, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(srcImage, srcImage, cv::COLOR_BGR2GRAY);
     cv::Mat dstImage(srcImage.size(), srcImage.type());
-
     laplacianFilter_GPU_wrapper(srcImage, dstImage);
     imwrite("output3.jpg", dstImage);
 
